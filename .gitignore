@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Editores
+.vscode/
+.idea/
+*.swp
+
+# Bundles de teste gerados pela própria extensão (se apontar o destino pra cá)
+_task/
+
+# Pacotes da extensão
+*.zip
+*.crx
+*.pem

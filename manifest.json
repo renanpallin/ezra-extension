@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Ezra Task Bundler",
+  "version": "0.2.0",
+  "description": "Empacota work items do Azure DevOps em _task/ (multi-task) para a slash command /ezra do Claude Code",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Empacotar ticket"
+  },
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["https://dev.azure.com/*"]
+}
