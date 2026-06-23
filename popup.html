@@ -4,48 +4,131 @@
   <meta charset="utf-8">
   <title>Ezra Task Bundler</title>
   <style>
-    body { width: 320px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 14px; margin: 0; color: #1f2937; }
-    h1 { font-size: 14px; margin: 0 0 10px; font-weight: 600; }
-    .target-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #4b5563; margin-bottom: 12px; }
-    .target-name { flex: 1; word-break: break-all; padding: 4px 8px; background: #f3f4f6; border-radius: 3px; }
-    button { width: 100%; padding: 8px 10px; font-size: 13px; cursor: pointer; border: 1px solid #d1d5db; background: #fff; border-radius: 4px; margin-bottom: 6px; }
-    button.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
-    button.primary:hover:not(:disabled) { background: #1d4ed8; }
+    :root {
+      --bg: #ffffff;
+      --fg: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --surface: #f9fafb;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --accent: #7c3aed;
+      --accent-hover: #6d28d9;
+      --ok-bg: #dcfce7; --ok-fg: #166534;
+      --err-bg: #fee2e2; --err-fg: #991b1b;
+      --info-bg: #f1f5f9; --info-fg: #334155;
+    }
+    * { box-sizing: border-box; }
+    body {
+      width: 340px; margin: 0; padding: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      color: var(--fg); background: var(--bg);
+    }
+    .header { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+    .header h1 { font-size: 15px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+    .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, var(--primary), var(--accent)); display: flex; align-items: center; justify-content: center; color: #fff; flex: 0 0 auto; }
+    .logo svg { width: 14px; height: 14px; }
+
+    /* pasta destino — sutil, é setup */
+    .folder {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12px; color: var(--muted);
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 7px 10px; margin-bottom: 14px;
+    }
+    .folder svg { width: 14px; height: 14px; flex: 0 0 auto; color: var(--muted); }
+    .folder .name { flex: 1; min-width: 0; word-break: break-all; color: var(--fg); font-weight: 500; }
+    .folder .change { flex: 0 0 auto; border: none; background: none; color: var(--primary); font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+    .folder .change:hover { background: #eff6ff; }
+
+    /* ações primárias — alta hierarquia */
+    .actions { display: flex; flex-direction: column; gap: 8px; }
+    button {
+      font-family: inherit; cursor: pointer; border-radius: 9px;
+      display: flex; align-items: center; gap: 9px;
+      transition: background .12s ease, border-color .12s ease, transform .04s ease;
+    }
+    button:active:not(:disabled) { transform: translateY(0.5px); }
     button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .status { font-size: 12px; margin-top: 10px; padding: 8px 10px; border-radius: 4px; white-space: pre-wrap; line-height: 1.4; }
-    .status.ok { background: #dcfce7; color: #166534; }
-    .status.err { background: #fee2e2; color: #991b1b; }
-    .status.info { background: #f3f4f6; color: #374151; }
-    .tasks { margin: 12px 0; padding-top: 12px; border-top: 1px solid #e5e7eb; }
-    .tasks-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #6b7280; margin-bottom: 6px; }
-    .task-row { display: flex; gap: 6px; align-items: center; }
-    select { flex: 1; min-width: 0; padding: 7px 8px; font-size: 12px; border: 1px solid #d1d5db; border-radius: 4px; background: #fff; }
-    .icon-btn { width: auto; flex: 0 0 auto; padding: 7px 9px; margin: 0; line-height: 1; }
+    button svg { width: 17px; height: 17px; flex: 0 0 auto; }
+
+    .btn-primary {
+      width: 100%; padding: 12px 14px; font-size: 14px; font-weight: 600;
+      color: #fff; border: 1px solid transparent;
+    }
+    .btn-primary .sub { font-weight: 400; font-size: 11px; opacity: .85; display: block; margin-top: 1px; }
+    .btn-primary .label { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.2; }
+    .btn-bundle { background: var(--primary); border-color: var(--primary); }
+    .btn-bundle:hover:not(:disabled) { background: var(--primary-hover); }
+    .btn-review { background: var(--accent); border-color: var(--accent); }
+    .btn-review:hover:not(:disabled) { background: var(--accent-hover); }
+
+    .divider { height: 1px; background: var(--border); margin: 14px 0; }
+
+    .tasks-label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 7px; font-weight: 600; }
+    .task-row { display: flex; gap: 7px; align-items: center; }
+    select {
+      flex: 1; min-width: 0; padding: 8px 10px; font-size: 13px;
+      border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--fg);
+      font-family: inherit;
+    }
+    select:focus { outline: 2px solid #bfdbfe; outline-offset: 0; border-color: var(--primary); }
+    .btn-icon { padding: 8px 10px; border: 1px solid var(--border); background: #fff; color: var(--fg); }
+    .btn-icon:hover:not(:disabled) { background: var(--surface); border-color: #d1d5db; }
+
+    .status {
+      font-size: 12px; margin-top: 14px; padding: 9px 11px; border-radius: 8px;
+      white-space: pre-wrap; line-height: 1.45; word-break: break-word;
+    }
+    .status.ok { background: var(--ok-bg); color: var(--ok-fg); }
+    .status.err { background: var(--err-bg); color: var(--err-fg); }
+    .status.info { background: var(--info-bg); color: var(--info-fg); }
   </style>
 </head>
 <body>
-  <h1>Ezra Task Bundler</h1>
-  <div class="target-row">
-    <span>Pasta:</span>
-    <span class="target-name" id="target">—</span>
+  <div class="header">
+    <span class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+    </span>
+    <h1>Ezra Task Bundler</h1>
   </div>
-  <button class="primary" id="bundle" disabled>Empacotar ticket</button>
-  <button id="review" disabled>Exportar code review</button>
-  <button id="setFolder">Selecionar pasta destino…</button>
-  <div class="tasks" id="wiPicker" style="display:none">
-    <div class="tasks-label">Work item do review</div>
-    <div class="task-row">
-      <select id="wiSelect" title="Escolher work item"></select>
-      <button class="icon-btn" id="wiConfirm" title="Confirmar">✓</button>
-    </div>
+
+  <div class="folder">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+    <span class="name" id="target">—</span>
+    <button class="change" id="setFolder">Trocar</button>
   </div>
+
+  <div class="actions">
+    <button class="btn-primary btn-bundle" id="bundle" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+      <span class="label">Empacotar ticket<span class="sub">work item → _task/</span></span>
+    </button>
+    <button class="btn-primary btn-review" id="review" disabled>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M7 9h10"/><path d="M7 13h6"/></svg>
+      <span class="label">Exportar code review<span class="sub">comentários do PR → reviews/</span></span>
+    </button>
+  </div>
+
+  <div class="divider"></div>
+
   <div class="tasks" id="tasks" style="display:none">
     <div class="tasks-label">Task ativa</div>
     <div class="task-row">
       <select id="taskSelect" title="Trocar de task"></select>
-      <button class="icon-btn" id="removeTask" title="Remover task do _task/">🗑</button>
     </div>
   </div>
+
+  <div class="tasks" id="wiPicker" style="display:none; margin-top:12px;">
+    <div class="tasks-label">Work item do review</div>
+    <div class="task-row">
+      <select id="wiSelect" title="Escolher work item"></select>
+      <button class="btn-icon" id="wiConfirm" title="Confirmar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      </button>
+    </div>
+  </div>
+
   <div class="status" id="status" style="display:none"></div>
   <script src="popup.js"></script>
 </body>

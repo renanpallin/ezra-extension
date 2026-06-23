@@ -6,7 +6,6 @@ const setFolderBtn = $('setFolder');
 const statusEl = $('status');
 const tasksSection = $('tasks');
 const taskSelect = $('taskSelect');
-const removeTaskBtn = $('removeTask');
 const wiPickerSection = $('wiPicker');
 const wiSelect = $('wiSelect');
 const wiConfirm = $('wiConfirm');
@@ -158,9 +157,15 @@ reviewBtn.addEventListener('click', async () => {
     const via = result.source === 'api'
       ? 'via API'
       : `⚠ via DOM (API falhou${result.apiError ? `: ${result.apiError}` : ''}; pode faltar diff)`;
+
+    // copia o comando pronto pra colar numa sessão do Claude Code
+    const cmd = `/ezra code-review ${taskId}`;
+    const copied = await copyToClipboard(cmd);
+
     setStatus(
       `✅ Review do PR #${result.prId} exportado (${result.threadCount} comentário(s)) ${via}\n` +
-      `   _task/tasks/${taskId}/reviews/${filename}`,
+      `   _task/tasks/${taskId}/reviews/${filename}\n` +
+      (copied ? `📋 copiado: ${cmd}` : `▶ rode: ${cmd}`),
       'ok'
     );
   } catch (e) {
@@ -178,20 +183,6 @@ taskSelect.addEventListener('change', async () => {
     if (!handle || !(await ensurePermission(handle))) return;
     await setCurrent(handle, id);
     setStatus(`▶ Task ativa: #${id}`, 'ok');
-  } catch (e) {
-    setStatus(`❌ ${e.message}`, 'err');
-  }
-});
-
-removeTaskBtn.addEventListener('click', async () => {
-  const id = taskSelect.value;
-  if (!id) return;
-  try {
-    const handle = await loadHandle();
-    if (!handle || !(await ensurePermission(handle))) return;
-    await removeTask(handle, id);
-    await refreshTasks();
-    setStatus(`🗑 Task #${id} removida`, 'ok');
   } catch (e) {
     setStatus(`❌ ${e.message}`, 'err');
   }
@@ -318,19 +309,6 @@ async function setCurrent(rootHandle, id) {
   return regenerateCurrentYml(rootHandle, id);
 }
 
-async function removeTask(rootHandle, id) {
-  const taskRoot = await rootHandle.getDirectoryHandle(TASK_DIR);
-  const tasksDir = await taskRoot.getDirectoryHandle('tasks');
-  try {
-    await tasksDir.removeEntry(String(id), { recursive: true });
-  } catch (e) {
-    if (e.name !== 'NotFoundError') throw e;
-  }
-  const current = await readCurrentId(rootHandle);
-  const next = String(current) === String(id) ? null : current;
-  await regenerateCurrentYml(rootHandle, next);
-}
-
 async function refreshTasks() {
   const handle = await loadHandle();
   if (!handle) {
@@ -343,7 +321,6 @@ async function refreshTasks() {
   if ((await handle.queryPermission({ mode: 'readwrite' })) !== 'granted') {
     taskSelect.innerHTML = '<option disabled selected>— empacote pra liberar acesso —</option>';
     taskSelect.disabled = true;
-    removeTaskBtn.disabled = true;
     return;
   }
 
@@ -356,11 +333,9 @@ async function refreshTasks() {
     o.selected = true;
     taskSelect.appendChild(o);
     taskSelect.disabled = true;
-    removeTaskBtn.disabled = true;
     return;
   }
   taskSelect.disabled = false;
-  removeTaskBtn.disabled = false;
   for (const t of tasks) {
     const o = document.createElement('option');
     o.value = String(t.id);
@@ -417,6 +392,28 @@ function pickWorkItem(linked) {
     };
     wiConfirm.addEventListener('click', onConfirm);
   });
+}
+
+async function copyToClipboard(textValue) {
+  try {
+    await navigator.clipboard.writeText(textValue);
+    return true;
+  } catch {
+    // fallback: textarea + execCommand (alguns contextos de popup)
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = textValue;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand('copy');
+      document.body.removeChild(ta);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
 }
 
 function reviewFilename(prId) {

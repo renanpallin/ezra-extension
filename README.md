@@ -28,12 +28,13 @@ Além de tasks, exporta **lotes de code review de PRs** (comentários do reviewe
 
 ### Trocar de task
 
-- **Popup**: dropdown **Task ativa** troca na hora (só reescreve `current.yml`); 🗑 remove uma task.
+- **Popup**: dropdown **Task ativa** troca na hora (só reescreve `current.yml`).
 - **Claude Code**:
-  - `/ezra` — planeja a task ativa
+  - `/ezra` — planeja a task ativa (se não houver ativa, abre um seletor)
   - `/ezra <id>` — troca a ativa e planeja
   - `/ezra list` — lista as tasks e qual está ativa
-  - `/ezra code-review` — processa os comentários de review da task ativa
+  - `/ezra pick` — abre o **seletor interativo** (escolher ação/task/review por clique)
+  - `/ezra code-review` — processa os comentários de review (ver seção abaixo)
 
 ## Exportar code review de um PR
 
@@ -45,7 +46,11 @@ Além de tasks, exporta **lotes de code review de PRs** (comentários do reviewe
 
 O **id da task** vem do **work item vinculado ao PR** (cascata): 1 vinculado → usa direto; vários → o popup pede pra escolher; nenhum → cai na task ativa. O arquivo é nomeado `YYYY-MM-DD-HHMM-pr<PRID>.md`, então dá pra exportar várias vezes no mesmo dia sem sobrescrever.
 
-Cada `.md` registra no frontmatter: `prId`, `prTitle`, `prUrl`, `commit` (best-effort), `taskId`, `linkedWorkItems`, `exportedAt` e a contagem de threads. Cada comentário carrega uma âncora `<!-- thread: <id> -->` estável — é o que permite o `/ezra code-review` saber, entre vários exports, quais já foram resolvidos e quais ainda estão abertos (ledger `reviews/_status.md`).
+Ao terminar, o popup **copia pro clipboard** o comando pronto (`/ezra code-review <taskId>`) — é só colar numa sessão do Claude Code aberta no projeto-alvo pra começar a tratar os comentários.
+
+Cada `.md` registra no frontmatter: `prId`, `prTitle`, `prUrl`, `sourceBranch`, `targetBranch`, `commit`, `taskId`, `linkedWorkItems`, `exportedAt` e a contagem de threads. Cada comentário carrega uma âncora `<!-- thread: <id> -->` estável — é o que permite o `/ezra code-review` saber, entre vários exports, quais já foram resolvidos e quais ainda estão abertos (ledger `reviews/_status.md`).
+
+Ao rodar `/ezra code-review`, o comando faz um **pré-flight de segurança** (read-only) antes de tocar em código: confere se você está na branch certa, se há mudanças não commitadas, se o commit do PR exportado bate com o seu HEAD local e se há commits não pushados — pra nada se perder e pra detectar quando o reviewer está comentando algo que você já mexeu localmente.
 
 > `reviews/` (e `logs/`) **nunca** são apagados ao re-empacotar a task: o re-empacotamento só reescreve `task.md`, `meta.json` e `imgs/`.
 

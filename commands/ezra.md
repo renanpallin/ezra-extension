@@ -1,6 +1,6 @@
 ---
-description: Planeja a task ativa do Azure DevOps empacotada em _task/ (com switch, list e code-review por argumento)
-argument-hint: "[<id> | list | code-review [list|<arquivo>]]"
+description: Planeja a task ativa do Azure DevOps empacotada em _task/ (com switch, list, pick e code-review por argumento)
+argument-hint: "[<id> | list | pick | code-review [list|<id>|<arquivo>]]"
 ---
 
 Você opera o fluxo de tasks da extensão ADO Task Bundler. O estado vive em `_task/` na raiz do projeto:
@@ -18,18 +18,34 @@ O argumento é: `$ARGUMENTS`
 
 ## Roteamento do argumento
 
+**Princípio:** quando eu já digo o alvo (id, arquivo, `list`), vá **direto** — sem menu. O seletor interativo só aparece quando o alvo é ambíguo ou eu peço (`pick`).
+
 1. **`list`** → leia `_task/current.yml` e imprima a lista de tasks (id + title + type), marcando qual é a `current` com `▶`. Não planeje nada. Pare aqui.
 
-2. **`code-review`** (opcionalmente seguido de `list` ou de um nome de arquivo) → siga o **Fluxo de code review** abaixo. Pare aqui (não entre no fluxo de planejamento).
+2. **`pick`** → **seletor interativo** (ver seção abaixo). Pare após a ação escolhida.
 
-3. **um número (ex.: `7790`)** → é um **switch**:
+3. **`code-review …`** → siga o **Fluxo de code review** abaixo (a resolução do alvo lá já decide entre ir direto ou abrir o seletor). Pare aqui.
+
+4. **um número (ex.: `7790`)** → é um **switch** (direto, sem menu):
    - Leia `_task/current.yml`. Se `<id>` **não** estiver em `tasks:`, avise que essa task não foi empacotada (liste as disponíveis) e pare.
    - Se existir, edite **apenas** a linha `current:` de `_task/current.yml` pra `current: <id>`. Não mexa no resto do arquivo.
    - Confirme em uma linha (`▶ Task ativa: #<id>`) e siga pro fluxo de planejamento abaixo com essa task.
 
-4. **vazio** → planeje a task **ativa**: leia `current:` de `_task/current.yml` e use `_task/tasks/<current>/`.
+5. **vazio**:
+   - Se houver task **ativa** válida (`current:` aponta pra uma pasta com `task.md`) → planeje-a **direto** (sem menu). Use `_task/tasks/<current>/`.
+   - Se **não** houver ativa válida mas existirem tasks empacotadas → abra o **seletor** pra eu escolher qual ativar/planejar.
 
-**Se `_task/current.yml` não existir, ou `current:` for `~`/vazio, ou a pasta da task estiver vazia**, me peça pra empacotar um ticket com a extensão antes de continuar — não tente buscar via MCP.
+**Se `_task/current.yml` não existir, ou não houver nenhuma task empacotada**, me peça pra empacotar um ticket com a extensão antes de continuar — não tente buscar via MCP.
+
+## Seletor interativo (TUI)
+
+Use a ferramenta **AskUserQuestion** pra me deixar escolher por clique, em vez de eu adivinhar id/arquivo. Monte as opções a partir de um scan do disco na hora (Glob/Bash: `_task/tasks/*`, `_task/tasks/*/reviews/*.md` exceto `_status.md`, e a linha `current:` de `_task/current.yml`).
+
+- **`pick`** → pergunta de ação: `Planejar task ativa` · `Trocar de task` · `Code review` · `Listar`. Conforme a escolha, siga o fluxo correspondente (e, se a ação ainda exigir alvo, faça uma segunda pergunta com a lista).
+- **Trocar de task** → opções = tasks empacotadas (`#<id> — <title>`), a ativa marcada `▶`.
+- **Code review** → opções = tasks que têm `reviews/`, rotuladas `#<id> · PR <prId> · <M> abertos` (mais recentes primeiro).
+- **Limite:** AskUserQuestion aceita até 4 opções. Se houver mais, mostre as 4 mais recentes/relevantes — a opção "Other" deixa eu digitar o id/arquivo manualmente.
+- Depois que eu escolher, **siga direto** pro fluxo (planejamento ou code-review) com o alvo selecionado.
 
 ## Fluxo de planejamento
 
@@ -58,11 +74,26 @@ Acionado por `code-review`. Trabalha sobre os lotes em `_task/tasks/<current>/re
 **Importante:** os reviews NÃO ficam necessariamente na task ativa. A extensão grava em `_task/tasks/<id>/reviews/`, onde `<id>` é o **work item vinculado ao PR** (que pode ser ≠ da task ativa). Por isso, localize os reviews escaneando o disco, não pela `current.yml`:
 
 - **Escaneie** `_task/tasks/*/reviews/*.md` (ignore `_status.md`).
-- `code-review` (sem mais nada) → use a task cujo review foi **exportado mais recentemente** (maior timestamp no nome do arquivo / `exportedAt`). Anuncie em uma linha qual task + PR você está processando (`▶ Code review: task #<id> · PR <prId>`). Dentro dessa task, consolide **todos** os reviews por `threadId` (o mesmo comentário reexportado aparece em vários arquivos com o mesmo `threadId`; conte uma vez só, preferindo a ocorrência mais recente).
+- `code-review <id>` → use os reviews da task `<id>` (**direto**, sem menu).
+- `code-review <arquivo.md>` → use esse arquivo específico (**direto**).
 - `code-review list` → liste **todas** as tasks que têm `reviews/`, e por task: PR, review mais recente, e contagem aberto/resolvido segundo o ledger. Pare aqui.
-- `code-review <id>` → use os reviews da task `<id>`.
-- `code-review <arquivo.md>` → use esse arquivo específico.
+- `code-review` (sem mais nada):
+  - Se **exatamente uma** task tem `reviews/` → vá **direto** nela. Anuncie `▶ Code review: task #<id> · PR <prId>`.
+  - Se **mais de uma** tem → abra o **seletor** (ver "Seletor interativo") pra eu escolher; a mais recente primeiro.
+- Em todos os casos, dentro da task-alvo consolide **todos** os reviews por `threadId` (o mesmo comentário reexportado aparece em vários arquivos com o mesmo `threadId`; conte uma vez só, preferindo a ocorrência mais recente).
 - Se nenhuma task tiver `reviews/`, me avise pra exportar um review pela extensão antes.
+
+### 0. Pré-flight de segurança (SEMPRE, antes de tocar em código)
+
+O objetivo é **não perder nada** e detectar descompasso entre o que o reviewer viu e o seu estado local. Rode apenas verificações **read-only** de git e **reporte** — nunca faça `checkout`, `stash`, `reset` ou descarte automático. Use o `sourceBranch` e o `commit` do frontmatter do review.
+
+1. **Branch** — `git branch --show-current`. Se ≠ `sourceBranch` do review → **PARE** e avise (você está em `<atual>`, o review é de `<sourceBranch>`). Não troque sozinho.
+2. **Working tree** — `git status --porcelain`. Se houver mudanças não commitadas → avise explicitamente antes de qualquer coisa (trocar de branch agora pode perder trabalho). Se a branch também estiver errada, isso reforça o PARE do item 1.
+3. **Commit do PR vs local** — com `commit` do frontmatter:
+   - `git cat-file -e <commit>` — não existe localmente? → seu local pode estar atrás do PR; sugira `git fetch`/`pull` e confirme antes de prosseguir.
+   - `git merge-base --is-ancestor <commit> HEAD` — se HEAD está **à frente** do commit exportado, avise: alguns comentários podem já ter sido endereçados em commits posteriores; reverifique antes de reaplicar (pode ser que o reviewer já esteja desatualizado).
+   - **Não pushado** — `git log --oneline origin/<sourceBranch>..HEAD`. Se houver commits → avise que o reviewer pode estar comentando sobre código que você já mudou localmente mas não subiu.
+4. **Resumo + confirmação** — imprima um bloco curto de pré-flight (branch, tree, commit defasado?, não-pushados?) e só siga se estiver coerente. Em estado de risco (branch errada ou tree suja relevante), **peça minha confirmação** (AskUserQuestion) antes de continuar.
 
 ### 1. Reconciliação de estado (SEMPRE no início)
 
