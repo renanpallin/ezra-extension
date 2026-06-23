@@ -1,13 +1,18 @@
 const $ = (id) => document.getElementById(id);
 const targetEl = $('target');
 const bundleBtn = $('bundle');
+const reviewBtn = $('review');
 const setFolderBtn = $('setFolder');
 const statusEl = $('status');
 const tasksSection = $('tasks');
 const taskSelect = $('taskSelect');
 const removeTaskBtn = $('removeTask');
+const wiPickerSection = $('wiPicker');
+const wiSelect = $('wiSelect');
+const wiConfirm = $('wiConfirm');
 
 const TASK_DIR = '_task';
+const REVIEWS_DIR = 'reviews';
 
 const DB_NAME = 'ado-task-bundler';
 const STORE = 'handles';
@@ -75,6 +80,7 @@ setFolderBtn.addEventListener('click', async () => {
     await saveHandle(handle);
     await refreshTarget();
     await refreshTasks();
+    await refreshReviewBtn();
     setStatus(`Pasta destino definida: ${handle.name}`, 'ok');
   } catch (e) {
     if (e.name !== 'AbortError') setStatus(`Erro: ${e.message}`, 'err');
@@ -116,6 +122,52 @@ bundleBtn.addEventListener('click', async () => {
     setStatus(`❌ ${e.message}`, 'err');
   } finally {
     bundleBtn.disabled = false;
+  }
+});
+
+reviewBtn.addEventListener('click', async () => {
+  reviewBtn.disabled = true;
+  setStatus('Extraindo comentários do code review…', 'info');
+
+  try {
+    const handle = await loadHandle();
+    if (!handle) throw new Error('Nenhuma pasta destino configurada.');
+    if (!(await ensurePermission(handle))) throw new Error('Permissão negada para a pasta destino.');
+
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !/\/pullrequest\/\d+/.test(tab.url || '')) {
+      throw new Error('A aba ativa não é um pull request do Azure DevOps.');
+    }
+
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ['review-content.js']
+    });
+
+    if (!result || result.error) throw new Error(result?.error || 'Falha ao extrair o review.');
+
+    const taskId = await resolveReviewTaskId(handle, result);
+    if (!taskId) { setStatus('Exportação cancelada.', 'info'); return; }
+
+    setStatus('Escrevendo review…', 'info');
+    const md = renderReviewMarkdown(result, taskId);
+    const filename = reviewFilename(result.prId);
+    await writeReview(handle, taskId, filename, md);
+    await refreshTasks();
+
+    const via = result.source === 'api'
+      ? 'via API'
+      : `⚠ via DOM (API falhou${result.apiError ? `: ${result.apiError}` : ''}; pode faltar diff)`;
+    setStatus(
+      `✅ Review do PR #${result.prId} exportado (${result.threadCount} comentário(s)) ${via}\n` +
+      `   _task/tasks/${taskId}/reviews/${filename}`,
+      'ok'
+    );
+  } catch (e) {
+    console.error(e);
+    setStatus(`❌ ${e.message}`, 'err');
+  } finally {
+    reviewBtn.disabled = false;
   }
 });
 
@@ -174,14 +226,16 @@ async function writeBundle(rootHandle, data, taskMd, images) {
   const tasksDir = await taskRoot.getDirectoryHandle('tasks', { create: true });
   const id = String(data.id);
 
-  // re-empacotar o mesmo ticket sobrescreve só a pasta dele
-  try {
-    await tasksDir.removeEntry(id, { recursive: true });
-  } catch (e) {
-    if (e.name !== 'NotFoundError') throw e;
-  }
-
+  // re-empacotar o mesmo ticket sobrescreve só os artefatos do bundle, NUNCA a
+  // pasta inteira: reviews/ e logs/ são adicionados pelo usuário e devem
+  // sobreviver a um re-empacotamento. Removemos task.md, meta.json e imgs/ e
+  // deixamos o resto intacto.
   const dir = await tasksDir.getDirectoryHandle(id, { create: true });
+  for (const stale of ['task.md', 'meta.json']) {
+    try { await dir.removeEntry(stale); } catch (e) { if (e.name !== 'NotFoundError') throw e; }
+  }
+  try { await dir.removeEntry('imgs', { recursive: true }); } catch (e) { if (e.name !== 'NotFoundError') throw e; }
+
   await writeFile(dir, 'task.md', taskMd);
   await writeFile(dir, 'meta.json', JSON.stringify({
     id,
@@ -327,6 +381,136 @@ function yamlString(s) {
   return JSON.stringify(s ?? '');
 }
 
+// --- code review export -------------------------------------------------
+//
+// Layout:
+//   _task/tasks/<taskId>/reviews/<YYYY-MM-DD-HHMM>-pr<PRID>.md
+//
+// taskId é resolvido a partir do work item vinculado ao PR (cascata em
+// resolveReviewTaskId). reviews/ NUNCA é apagado ao re-empacotar a task.
+
+async function resolveReviewTaskId(rootHandle, data) {
+  const linked = data.linkedWorkItems || [];
+  if (linked.length === 1) return linked[0].id;
+  if (linked.length > 1) return await pickWorkItem(linked);
+  // sem work item vinculado → cai pra task ativa
+  const current = await readCurrentId(rootHandle);
+  if (current) return String(current);
+  throw new Error('PR sem work item vinculado e sem task ativa. Empacote/ative uma task antes de exportar o review.');
+}
+
+function pickWorkItem(linked) {
+  return new Promise((resolve) => {
+    wiSelect.innerHTML = '';
+    for (const wi of linked) {
+      const o = document.createElement('option');
+      o.value = String(wi.id);
+      o.textContent = `#${wi.id}${wi.title ? ' — ' + wi.title : ''}`;
+      wiSelect.appendChild(o);
+    }
+    wiPickerSection.style.display = 'block';
+    setStatus('Este PR tem mais de um work item vinculado. Escolha qual recebe o review.', 'info');
+    const onConfirm = () => {
+      wiConfirm.removeEventListener('click', onConfirm);
+      wiPickerSection.style.display = 'none';
+      resolve(wiSelect.value);
+    };
+    wiConfirm.addEventListener('click', onConfirm);
+  });
+}
+
+function reviewFilename(prId) {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  const ts = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+  return `${ts}-pr${prId}.md`;
+}
+
+async function writeReview(rootHandle, taskId, filename, md) {
+  const taskRoot = await rootHandle.getDirectoryHandle(TASK_DIR, { create: true });
+  const tasksDir = await taskRoot.getDirectoryHandle('tasks', { create: true });
+  const taskDir = await tasksDir.getDirectoryHandle(String(taskId), { create: true });
+  const reviewsDir = await taskDir.getDirectoryHandle(REVIEWS_DIR, { create: true });
+  await writeFile(reviewsDir, filename, md);
+}
+
+function codeLang(file) {
+  const ext = (file || '').split('.').pop()?.toLowerCase() || '';
+  const map = { cs: 'csharp', ts: 'ts', tsx: 'tsx', js: 'js', jsx: 'jsx', vue: 'vue', sql: 'sql', json: 'json', py: 'python', html: 'html', css: 'css', sh: 'bash', yml: 'yaml', yaml: 'yaml' };
+  return map[ext] || '';
+}
+
+function renderReviewMarkdown(data, taskId) {
+  const fm = ['---', 'kind: code-review'];
+  fm.push(`prId: ${data.prId}`);
+  fm.push(`prTitle: ${yamlString(data.prTitle)}`);
+  fm.push(`prUrl: ${data.prUrl}`);
+  if (data.sourceBranch) fm.push(`sourceBranch: ${yamlString(data.sourceBranch)}`);
+  if (data.targetBranch) fm.push(`targetBranch: ${yamlString(data.targetBranch)}`);
+  fm.push(`commit: ${data.commit || ''}`);
+  fm.push(`taskId: ${taskId}`);
+  if (data.linkedWorkItems?.length) {
+    fm.push('linkedWorkItems:');
+    for (const wi of data.linkedWorkItems) {
+      fm.push(`  - { id: ${wi.id}, title: ${yamlString(wi.title)} }`);
+    }
+  }
+  fm.push(`exportedAt: ${new Date().toISOString()}`);
+  fm.push(`threadCount: ${data.threadCount}`);
+  fm.push(`activeThreads: ${data.activeThreads}`);
+  fm.push(`resolvedThreads: ${data.resolvedThreads}`);
+  fm.push('---');
+
+  const parts = [fm.join('\n'), '', `# Code review — PR ${data.prId}`, ''];
+  if (data.prTitle) parts.push(`> ${data.prTitle}`, '');
+
+  data.threads.forEach((t, i) => {
+    const badge = t.status === 'resolved' ? '🟢 resolved' : '🟡 active';
+    const loc = t.line ? `${t.file}:${t.line}` : (t.file || '(comentário geral)');
+    parts.push(`## ${i + 1}. ${loc} · ${badge}`, '');
+    // âncora estável p/ o /ezra code-review rastrear resolução entre exports
+    parts.push(`<!-- thread: ${t.threadId || `t${i + 1}`} | adoStatus: ${t.rawStatus || t.status} -->`, '');
+
+    const snippet = t.snippet || [];
+    if (snippet.length) {
+      parts.push('```' + codeLang(t.file));
+      for (const ln of snippet) {
+        const gutter = ln.commented ? '►' : ' ';
+        const num = ln.lineNo ? String(ln.lineNo).padStart(4, ' ') : '    ';
+        parts.push(`${gutter} ${num}  ${ln.code}`);
+      }
+      parts.push('```', '');
+    }
+
+    for (const c of t.comments) {
+      const header = [c.author, c.date].filter(Boolean).join(' — ');
+      if (header) parts.push(`**${header}**`, '');
+      // cita linha-a-linha, exceto quando o corpo já tem bloco de código
+      // (citar quebraria a fence) — aí renderiza como está.
+      const body = c.markdown.includes('```')
+        ? c.markdown
+        : c.markdown.split('\n').map((l) => (l ? `> ${l}` : '>')).join('\n');
+      parts.push(body, '');
+    }
+  });
+
+  return parts.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
+async function refreshReviewBtn() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const isPr = /^https:\/\/dev\.azure\.com\/.*\/pullrequest\/\d+/.test(tab?.url || '');
+    const handle = await loadHandle();
+    reviewBtn.disabled = !isPr || !handle;
+    reviewBtn.title = !handle
+      ? 'Defina a pasta destino primeiro'
+      : isPr ? 'Exportar comentários do code review' : 'Abra um pull request para exportar';
+  } catch {
+    reviewBtn.disabled = true;
+  }
+}
+
 function renderMarkdown(data) {
   const fm = ['---'];
   fm.push(`id: ${data.id}`);
@@ -366,3 +550,4 @@ function renderMarkdown(data) {
 
 refreshTarget();
 refreshTasks();
+refreshReviewBtn();

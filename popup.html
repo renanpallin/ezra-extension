@@ -30,7 +30,15 @@
     <span class="target-name" id="target">—</span>
   </div>
   <button class="primary" id="bundle" disabled>Empacotar ticket</button>
+  <button id="review" disabled>Exportar code review</button>
   <button id="setFolder">Selecionar pasta destino…</button>
+  <div class="tasks" id="wiPicker" style="display:none">
+    <div class="tasks-label">Work item do review</div>
+    <div class="task-row">
+      <select id="wiSelect" title="Escolher work item"></select>
+      <button class="icon-btn" id="wiConfirm" title="Confirmar">✓</button>
+    </div>
+  </div>
   <div class="tasks" id="tasks" style="display:none">
     <div class="tasks-label">Task ativa</div>
     <div class="task-row">

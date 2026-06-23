@@ -13,3 +13,8 @@ _task/
 *.zip
 *.crx
 *.pem
+
+# Páginas salvas do ADO usadas como fixture de desenvolvimento (os bundles
+# aad.*/me*.js podem conter tokens de sessão — nunca versionar)
+Pull request *
+*_files/
