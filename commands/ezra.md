@@ -93,7 +93,23 @@ O objetivo é **não perder nada** e detectar descompasso entre o que o reviewer
    - `git cat-file -e <commit>` — não existe localmente? → seu local pode estar atrás do PR; sugira `git fetch`/`pull` e confirme antes de prosseguir.
    - `git merge-base --is-ancestor <commit> HEAD` — se HEAD está **à frente** do commit exportado, avise: alguns comentários podem já ter sido endereçados em commits posteriores; reverifique antes de reaplicar (pode ser que o reviewer já esteja desatualizado).
    - **Não pushado** — `git log --oneline origin/<sourceBranch>..HEAD`. Se houver commits → avise que o reviewer pode estar comentando sobre código que você já mudou localmente mas não subiu.
-4. **Resumo + confirmação** — imprima um bloco curto de pré-flight (branch, tree, commit defasado?, não-pushados?) e só siga se estiver coerente. Em estado de risco (branch errada ou tree suja relevante), **peça minha confirmação** (AskUserQuestion) antes de continuar.
+4. **Conflitos com a branch-alvo (detecção read-only)** — o PR vai mergear em `targetBranch` (frontmatter; ex.: `develop`). Detecte conflitos SEM tocar no working tree:
+   - `git fetch origin <targetBranch>` (atualiza só o ref remoto, não mexe nos seus arquivos).
+   - `git merge-tree --write-tree --merge-base=$(git merge-base HEAD origin/<targetBranch>) HEAD origin/<targetBranch>` (git ≥ 2.38; exit ≠ 0 e lista os arquivos em conflito). Fallback p/ git antigo: `git merge-tree $(git merge-base HEAD origin/<targetBranch>) HEAD origin/<targetBranch>` e procure marcadores `<<<<<<<`/"both modified".
+   - Se houver conflito → reporte os arquivos e vá pra **"0b. Resolução de conflitos"**. Se limpo, siga.
+5. **Resumo + confirmação** — imprima um bloco curto de pré-flight (branch, tree, commit defasado?, não-pushados?, conflitos com `<targetBranch>`?) e só siga se estiver coerente. Em estado de risco (branch errada ou tree suja relevante), **peça minha confirmação** (AskUserQuestion) antes de continuar.
+
+### 0b. Resolução de conflitos (só se a detecção acima achou conflito)
+
+Diferente do pré-flight, este passo **modifica arquivos** — então exige tree limpa e a minha confirmação antes de começar.
+
+1. **Pré-requisitos** — working tree limpa (item 2 do pré-flight) e minha confirmação (AskUserQuestion: "Resolver conflitos com `<targetBranch>` agora?"). Sem isso, **pare** e me explique o que falta. Nada de `reset --hard` ou descartar trabalho.
+2. **Traga a branch-alvo** pra cima da sua: `git merge origin/<targetBranch>` (na branch de origem). Se preferir histórico linear e eu já indiquei isso antes, rebase; no silêncio, use merge.
+3. **Resolva cada conflito entendendo a intenção dos dois lados** — não escolha "ours/theirs" no chute. Para cada arquivo: leia os dois lados, **investigue o código e o histórico** (Explore/Grep/`git log`/blame) pra entender por que cada mudança existe, e produza a resolução que preserva ambas as intenções. Rode build/testes relevantes se existirem pra validar.
+4. **Pergunte quando tiver dúvida real** — se, **após uma investigação séria** no código e nos recursos disponíveis, um conflito continuar ambíguo (decisão de produto, semântica que muda comportamento, dois caminhos válidos), **PARE e me pergunte** (AskUserQuestion) com: o arquivo/hunk, o que cada lado faz, e as opções de resolução. Não adivinhe em conflito que muda comportamento.
+5. **Conclua o merge** só quando tudo resolvido e validado; me mostre o resumo do que foi resolvido. **Nada pode ser perdido** — se em qualquer ponto o caminho seguro não estiver claro, prefira parar e perguntar a arriscar.
+
+> Resolver conflitos consome bastante contexto. Se este passo aconteceu nesta execução, **ao final** (depois da revisão dos comentários) sugira que eu **inicie uma nova sessão** `/ezra code-review <id>` com contexto limpo pra seguir/forçar a reverificação dos comentários do review sem o ruído da resolução de conflitos.
 
 ### 1. Reconciliação de estado (SEMPRE no início)
 
@@ -136,5 +152,6 @@ Após aprovado:
    ```
 
    Threads ainda não endereçados ficam `⬜ open` no ledger — é isso que faz a reconciliação do próximo `code-review` saber o que já foi feito.
+4. **Sugestão de nova sessão** — se houve **resolução de conflitos** (passo 0b) nesta execução, encerre sugerindo que eu **inicie uma nova sessão** e rode `/ezra code-review <id>` de novo, com contexto limpo, pra revisar/forçar a reverificação dos comentários sem o ruído do merge. (Sem conflitos, não precisa sugerir.)
 
 Responda em português.
